@@ -22,6 +22,25 @@ Using our basic simulation model, which involves only two agents (homeless peopl
 
 As our basic model reaches convergence and stabilizes in a static state of spatial segregation, we observe that when new variables are added, the system's behavior changes significantly. When we include the Church, which attracts and densifies the homeless population in certain areas, the system takes longer to stabilize. The homeless population concentrates in specific areas, while residents disperse and stabilize in more densely occupied surrounding points. Although the system eventually stabilizes, this process occurs more slowly compared to the basic model. However, when we introduce the Police variable, the model begins to converge and stabilize, but it promptly destabilizes and enters a cycle of constant change, never fully converging. Instead, the system becomes highly dynamic and unstable, with incessant displacements of residents, the homeless population, churches, and police, preventing any form of spatial equilibrium.
 
+### Comparison of Model Results
+
+|                         | Basic      | Church     | ChurchPolice  |
+|-------------------------|------------|------------|---------------|
+| Mobilidade_Morador       | 0.000000   | 0.000000   | 0.805643      |
+| Mobilidade_Povo_Rua      | 0.442231   | 0.462151   | 0.645418      |
+| Indice_Gini_Morador      | 0.666378   | 0.648766   | 0.223241      |
+| Indice_Gini_Povo_Rua     | 0.409044   | 0.417251   | 0.345458      |
+
+### Interpretation of Results
+
+- **Mobilidade_Morador**: The mobility of residents remains zero in both the basic and Church models, indicating stability in resident locations. However, in the ChurchPolice model, the mobility increases significantly, showing that the presence of police forces induces considerable movement among residents, likely due to the introduction of violence and subsequent instability.
+  
+- **Mobilidade_Povo_Rua**: The mobility of the homeless population increases gradually from the basic model to the Church model and reaches its peak in the ChurchPolice model. This suggests that the presence of the Church already contributes to a slight increase in mobility, but the introduction of police forces leads to even greater displacement, likely due to increased violence and police intervention.
+  
+- **Indice_Gini_Morador**: The Gini index for residents decreases from the basic model to the ChurchPolice model, indicating that income inequality among residents reduces when both the Church and Police are present. This could be attributed to the forced redistribution of residents caused by police intervention.
+  
+- **Indice_Gini_Povo_Rua**: The Gini index for the homeless population also decreases slightly across the models, with the lowest value observed in the ChurchPolice model. This reduction indicates a more even distribution of the homeless population, likely due to the combined effects of the Church attracting homeless individuals to specific areas and the police displacing them.
+
 ## Conclusion
 
 We hope this simulation can represent the dynamics of urban social inequality. We can push the debate about gentrification beyond moral reasoning or blaming one agent or another during this process and identify intuitive actions which, when taken, intensified the vicious cycle rather than hindered it. We propose this as a step toward focusing on constructive solutions.

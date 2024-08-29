@@ -39,6 +39,9 @@ class Locacao:
     def adicionar_violencia(self, x, y, quantidade):
         self.matriz_violencia[x, y] += quantidade
 
+    def remover_violencia(self, x, y):
+        self.matriz_violencia[x, y] = 0
+
     def obter_violencia(self, x, y):
         return self.matriz_violencia[x, y]
 
@@ -74,56 +77,66 @@ class AgenteUrbano(Agent):
         else:
             self.move_id = 0
 
-# Agente Igreja, que se move conforme a concentração de agentes "povo_rua"
+# Agente Igreja, que só aparece quando a concentração de população de rua atinge o limiar
 class AgenteIgreja(Agent):
-    def __init__(self, unique_id, model):
+    def __init__(self, unique_id, model, igreja_concentracao_minima_povo_rua):
         super().__init__(unique_id, model)
         self.tipo = "igreja"
-        self.concentracao_minima_povo_rua = 3
+        self.igreja_concentracao_minima_povo_rua = igreja_concentracao_minima_povo_rua
 
     def step(self):
-        vizinhanca = self.model.grid.get_neighborhood(self.pos, moore=True, include_center=True)
-        vizinhos = self.model.grid.get_cell_list_contents(vizinhanca)
-        quantidade_povo_rua = sum(1 for v in vizinhos if isinstance(v, AgenteUrbano) and v.obter_tipo() == "povo_rua")
-
-        if quantidade_povo_rua < self.concentracao_minima_povo_rua:
-            self.mover()
-
-    def mover(self):
-        passos_possiveis = self.model.grid.get_neighborhood(self.pos, moore=True, include_center=False)
         melhor_posicao = None
         maior_concentracao = 0
 
-        for passo in passos_possiveis:
-            conteudo_celula = self.model.grid.get_cell_list_contents([passo])
-            concentracao_povo_rua = sum(1 for agente in conteudo_celula if isinstance(agente, AgenteUrbano) and agente.obter_tipo() == "povo_rua")
+        for cell in self.model.grid.coord_iter():
+            cell_content, pos = cell
+            quantidade_povo_rua = sum(1 for v in cell_content if isinstance(v, AgenteUrbano) and v.obter_tipo() == "povo_rua")
 
-            if concentracao_povo_rua > maior_concentracao:
-                maior_concentracao = concentracao_povo_rua
-                melhor_posicao = passo
+            if quantidade_povo_rua > maior_concentracao:
+                maior_concentracao = quantidade_povo_rua
+                melhor_posicao = pos
 
-        if melhor_posicao:
+        if melhor_posicao and maior_concentracao >= self.igreja_concentracao_minima_povo_rua:
             self.model.grid.move_agent(self, melhor_posicao)
-        else:
-            nova_posicao = self.random.choice(passos_possiveis)
-            self.model.grid.move_agent(self, nova_posicao)
 
-# Agente Policia, que adiciona violência ao grid
+# Agente Policia, que se move para as áreas com maior concentração de população de rua
 class AgentePolicia(Agent):
-    def __init__(self, unique_id, model):
+    def __init__(self, unique_id, model, policia_limiar_concentracao_povo_rua):
         super().__init__(unique_id, model)
         self.tipo = "policia"
+        self.policia_limiar_concentracao_povo_rua = policia_limiar_concentracao_povo_rua
+        self.violencia_atual = 0.0
 
     def step(self):
-        self.model.locacao.adicionar_violencia(self.pos[0], self.pos[1], 0.2)
-        self.mover()
+        melhor_posicao = None
+        maior_concentracao = 0
 
-    def mover(self):
-        passos_possiveis = self.model.grid.get_neighborhood(self.pos, moore=True, include_center=False)
-        nova_posicao = self.random.choice(passos_possiveis)
-        self.model.grid.move_agent(self, nova_posicao)
+        for cell in self.model.grid.coord_iter():
+            cell_content, pos = cell
+            quantidade_povo_rua = sum(
+                1 for agente in cell_content
+                if isinstance(agente, AgenteUrbano) and agente.obter_tipo() == "povo_rua"
+            )
 
-# Modelo base que organiza a simulação
+            if quantidade_povo_rua > self.policia_limiar_concentracao_povo_rua and quantidade_povo_rua > maior_concentracao:
+                maior_concentracao = quantidade_povo_rua
+                melhor_posicao = pos
+
+        if melhor_posicao:
+            self.model.locacao.remover_violencia(self.pos[0], self.pos[1])
+            self.model.grid.move_agent(self, melhor_posicao)
+            self.violencia_atual = 0.2
+        else:
+            self.violencia_atual += 0.2
+
+        self.aplicar_violencia()
+
+    def aplicar_violencia(self):
+        vizinhanca = self.model.grid.get_neighborhood(self.pos, moore=True, include_center=True)
+        for cell in vizinhanca:
+            self.model.locacao.adicionar_violencia(cell[0], cell[1], self.violencia_atual)
+
+# Modelo básico, sem Igreja ou Polícia
 class ModeloDinamicaUrbana(Model):
     def __init__(self, num_agentes, width, height, forma_morador, escala_morador, mu_povo_rua, sd_povo_rua):
         super().__init__()
@@ -190,32 +203,53 @@ class ModeloDinamicaUrbana(Model):
 
 # Modelo intermediário com igrejas
 class ModeloComIgreja(ModeloDinamicaUrbana):
-    def __init__(self, num_agentes, width, height, forma_morador, escala_morador, mu_povo_rua, sd_povo_rua, num_igrejas):
+    def __init__(self, num_agentes, width, height, forma_morador, escala_morador, mu_povo_rua, sd_povo_rua, num_igrejas, igreja_concentracao_minima_povo_rua):
         super().__init__(num_agentes, width, height, forma_morador, escala_morador, mu_povo_rua, sd_povo_rua)
-        for i in range(num_igrejas):
-            igreja = AgenteIgreja(self.num_agentes + i, self)
-            self.schedule.add(igreja)
-            x = self.random.randrange(self.grid.width)
-            y = self.random.randrange(self.grid.height)
-            self.grid.place_agent(igreja, (x, y))
+        self.num_igrejas = num_igrejas
+        self.igreja_concentracao_minima_povo_rua = igreja_concentracao_minima_povo_rua
+        self.igrejas_criadas = 0
+
+    def step(self):
+        super().step()
+        self.criar_igrejas()
+
+    def criar_igrejas(self):
+        if self.igrejas_criadas < self.num_igrejas:
+            for cell in self.grid.coord_iter():
+                cell_content, pos = cell
+                quantidade_povo_rua = sum(1 for agente in cell_content if isinstance(agente, AgenteUrbano) and agente.obter_tipo() == "povo_rua")
+                if quantidade_povo_rua >= self.igreja_concentracao_minima_povo_rua:
+                    igreja = AgenteIgreja(self.num_agentes + self.igrejas_criadas, self, self.igreja_concentracao_minima_povo_rua)
+                    self.schedule.add(igreja)
+                    self.grid.place_agent(igreja, pos)
+                    self.igrejas_criadas += 1
+                    if self.igrejas_criadas >= self.num_igrejas:
+                        break
 
 # Modelo completo com igrejas e polícia
-class ModeloPoliciaIgreja(ModeloDinamicaUrbana):
-    def __init__(self, num_agentes, width, height, forma_morador, escala_morador, mu_povo_rua, sd_povo_rua, num_igrejas, num_policias):
-        super().__init__(num_agentes, width, height, forma_morador, escala_morador, mu_povo_rua, sd_povo_rua)
-        for i in range(num_igrejas):
-            igreja = AgenteIgreja(self.num_agentes + i, self)
-            self.schedule.add(igreja)
-            x = self.random.randrange(self.grid.width)
-            y = self.random.randrange(self.grid.height)
-            self.grid.place_agent(igreja, (x, y))
+class ModeloPoliciaIgreja(ModeloComIgreja):
+    def __init__(self, num_agentes, width, height, forma_morador, escala_morador, mu_povo_rua, sd_povo_rua, num_igrejas, igreja_concentracao_minima_povo_rua, num_policias, policia_limiar_concentracao_povo_rua):
+        super().__init__(num_agentes, width, height, forma_morador, escala_morador, mu_povo_rua, sd_povo_rua, num_igrejas, igreja_concentracao_minima_povo_rua)
+        self.num_policias = num_policias
+        self.policia_limiar_concentracao_povo_rua = policia_limiar_concentracao_povo_rua
+        self.policias_criadas = 0
 
-        for i in range(num_policias):
-            policia = AgentePolicia(self.num_agentes + num_igrejas + i, self)
-            self.schedule.add(policia)
-            x = self.random.randrange(self.grid.width)
-            y = self.random.randrange(self.grid.height)
-            self.grid.place_agent(policia, (x, y))
+    def step(self):
+        super().step()
+        self.criar_policias()
+
+    def criar_policias(self):
+        if self.policias_criadas < self.num_policias:
+            for cell in self.grid.coord_iter():
+                cell_content, pos = cell
+                quantidade_povo_rua = sum(1 for agente in cell_content if isinstance(agente, AgenteUrbano) and agente.obter_tipo() == "povo_rua")
+                if quantidade_povo_rua >= self.policia_limiar_concentracao_povo_rua:
+                    policia = AgentePolicia(self.num_agentes + self.num_igrejas + self.policias_criadas, self, self.policia_limiar_concentracao_povo_rua)
+                    self.schedule.add(policia)
+                    self.grid.place_agent(policia, pos)
+                    self.policias_criadas += 1
+                    if self.policias_criadas >= self.num_policias:
+                        break
 
 # Funções de visualização e combinação de GIFs
 class UtilidadesVisualizacao:
@@ -303,7 +337,6 @@ class ExecutorModelo:
     def rodar_modelo_e_salvar_resultados(model_class, output_dir, prefix, iteracoes, **model_params):
         model = model_class(**model_params)
         
-        # Cria subpastas para gifs e csvs
         gifs_dir = os.path.join(output_dir, "gifs")
         csvs_dir = os.path.join(output_dir, "csvs")
         os.makedirs(gifs_dir, exist_ok=True)
@@ -333,37 +366,48 @@ if __name__ == "__main__":
     num_igrejas = 3
     num_policias = 2
     iteracoes = 200
+    igreja_concentracao_minima_povo_rua = 3
+    policia_limiar_concentracao_povo_rua = 5
 
     diretorio_output = "output"
     os.makedirs(diretorio_output, exist_ok=True)
 
     print("Executando o modelo básico...")
-    ExecutorModelo.rodar_modelo_em_processo_separado(ModeloDinamicaUrbana, diretorio_output, "basico", iteracoes, num_agentes=num_agentes, width=largura_grid, height=altura_grid, forma_morador=forma_morador, escala_morador=escala_morador, mu_povo_rua=mu_povo_rua, sd_povo_rua=sd_povo_rua)
+    ExecutorModelo.rodar_modelo_em_processo_separado(ModeloDinamicaUrbana, diretorio_output, "basico", iteracoes,
+        num_agentes=num_agentes, width=largura_grid, height=altura_grid, forma_morador=forma_morador,
+        escala_morador=escala_morador, mu_povo_rua=mu_povo_rua, sd_povo_rua=sd_povo_rua)
 
     print("Executando o modelo com Igreja...")
-    ExecutorModelo.rodar_modelo_em_processo_separado(ModeloComIgreja, diretorio_output, "igreja", iteracoes, num_agentes=num_agentes, width=largura_grid, height=altura_grid, forma_morador=forma_morador, escala_morador=escala_morador, mu_povo_rua=mu_povo_rua, sd_povo_rua=sd_povo_rua, num_igrejas=num_igrejas)
+    ExecutorModelo.rodar_modelo_em_processo_separado(ModeloComIgreja, diretorio_output, "igreja", iteracoes,
+        num_agentes=num_agentes, width=largura_grid, height=altura_grid, forma_morador=forma_morador,
+        escala_morador=escala_morador, mu_povo_rua=mu_povo_rua, sd_povo_rua=sd_povo_rua,
+        num_igrejas=num_igrejas, igreja_concentracao_minima_povo_rua=igreja_concentracao_minima_povo_rua)
 
-    print("Executando o modelo com Polícia e Igreja...")
-    ExecutorModelo.rodar_modelo_em_processo_separado(ModeloPoliciaIgreja, diretorio_output, "policia_igreja", iteracoes, num_agentes=num_agentes, width=largura_grid, height=altura_grid, forma_morador=forma_morador, escala_morador=escala_morador, mu_povo_rua=mu_povo_rua, sd_povo_rua=sd_povo_rua, num_igrejas=num_igrejas, num_policias=num_policias)
+    print("Executando o modelo com Igreja e Polícia...")
+    ExecutorModelo.rodar_modelo_em_processo_separado(ModeloPoliciaIgreja, diretorio_output, "igreja_policia", iteracoes,
+        num_agentes=num_agentes, width=largura_grid, height=altura_grid, forma_morador=forma_morador,
+        escala_morador=escala_morador, mu_povo_rua=mu_povo_rua, sd_povo_rua=sd_povo_rua,
+        num_igrejas=num_igrejas, igreja_concentracao_minima_povo_rua=igreja_concentracao_minima_povo_rua,
+        num_policias=num_policias, policia_limiar_concentracao_povo_rua=policia_limiar_concentracao_povo_rua)
 
     # Combinar todos os GIFs em uma única imagem
-    titles = ["Modelo Básico", "Modelo com Igreja", "Modelo com Polícia e Igreja"]
+    titles = ["Modelo Básico", "Modelo com Igreja", "Modelo com Igreja e Polícia"]
     UtilidadesVisualizacao.combinar_gifs([
         os.path.join(diretorio_output, "gifs", "basico_combinado.gif"),
         os.path.join(diretorio_output, "gifs", "igreja_combinado.gif"),
-        os.path.join(diretorio_output, "gifs", "policia_igreja_combinado.gif")
+        os.path.join(diretorio_output, "gifs", "igreja_policia_combinado.gif")
     ], os.path.join(diretorio_output, "gifs", "todos_modelos_combinados.gif"), titles=titles, columns=1)
     gc.collect()
 
     # Carregar e comparar os resultados dos modelos
     resultados_basico = pd.read_csv(os.path.join(diretorio_output, "csvs", "basico_resultados.csv"), index_col=0).iloc[-1]
     resultados_igreja = pd.read_csv(os.path.join(diretorio_output, "csvs", "igreja_resultados.csv"), index_col=0).iloc[-1]
-    resultados_completo = pd.read_csv(os.path.join(diretorio_output, "csvs", "policia_igreja_resultados.csv"), index_col=0).iloc[-1]
+    resultados_completo = pd.read_csv(os.path.join(diretorio_output, "csvs", "igreja_policia_resultados.csv"), index_col=0).iloc[-1]
 
     df_comparacao = pd.DataFrame({
         "Basico": resultados_basico,
         "Igreja": resultados_igreja,
-        "PoliciaIgreja": resultados_completo
+        "IgrejaPolicia": resultados_completo
     })
 
     print("\nComparação dos resultados dos modelos:")
